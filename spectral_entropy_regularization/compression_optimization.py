@@ -114,7 +114,7 @@ class CompressionOptimizer:
         # Return the absolute loss difference
         return abs(compressed_loss.item() - original_loss.item())
 
-    def optimize_compression(self, dataloader, criterion, n_calls=10):
+    def optimize_compression(self, dataloader, criterion, n_calls=10, tau_range=(0.1, 1.0), delta_range=(0.01, 0.1)):
         """
         Perform Bayesian optimization to find the best compression parameters.
         
@@ -133,8 +133,8 @@ class CompressionOptimizer:
 
         # Define the search space for tau and delta
         space = [
-            Real(0.1, 1.0, name='tau'),  # tau: threshold for low-rank approximation
-            Real(0.01, 0.1, name='delta')  # delta: quantization bin size
+            Real(*tau_range, name='tau'),  # tau: threshold for low-rank approximation
+            Real(*delta_range, name='delta')  # delta: quantization bin size
         ]
 
         # Perform Bayesian optimization
