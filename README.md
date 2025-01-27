@@ -1,1 +1,1 @@
-https://openreview.net/pdf?id=07N9jCfIE4
+[The Complexity Dynamics of Grokking](https://openreview.net/pdf?id=07N9jCfIE4)
