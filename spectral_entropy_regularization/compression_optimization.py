@@ -122,6 +122,8 @@ class CompressionOptimizer:
             dataloader (DataLoader): Data loader for computing the loss.
             criterion (nn.Module): Loss function.
             n_calls (int): Number of optimization iterations.
+            tau_range (tuple): Range of tau values for optimization.
+            delta_range (tuple): Range of delta values for optimization.
         
         Returns:
             dict: Best compression parameters (tau, delta) and compressed model.
