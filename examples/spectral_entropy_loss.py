@@ -18,7 +18,7 @@ class SimpleModel(nn.Module):
 class SimpleDataset(Dataset):
     def __init__(self):
         self.data = torch.randn(100, 128)
-        self.targets = self.data.sum(dim=1) > 0
+        self.targets = (self.data.sum(dim=1) > 0).long()
     
     def __len__(self):
         return len(self.data)

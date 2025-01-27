@@ -1,22 +1,32 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
-import numpy as np
 from skopt import gp_minimize
 from skopt.space import Real
+from torch.utils.data import DataLoader
+
 
 class CompressionOptimizer:
-    def __init__(self, model, epsilon=1.0):
+    def __init__(self,
+                 model: nn.Module,
+                 criterion: nn.Module,
+                 epsilon: float = 1.0):
         """
         Compression Optimizer for Quantization and Low-Rank Approximation.
         
         Args:
             model (nn.Module): The neural network model to compress.
+            criterion (nn.Module): Loss function for evaluating the compression.
             epsilon (float): Distortion tolerance for compression.
         """
         self.model = model
         self.epsilon = epsilon
+        self.criterion = criterion
 
-    def quantize(self, params, delta):
+    def quantize(self,
+                 params: torch.Tensor,
+                 delta: float) -> torch.Tensor:
         """
         Quantize the model parameters.
         
@@ -29,7 +39,9 @@ class CompressionOptimizer:
         """
         return torch.round(params / delta) * delta
 
-    def low_rank_approximation(self, params, tau):
+    def low_rank_approximation(self,
+                               params: torch.Tensor,
+                               tau: float):
         """
         Perform low-rank approximation on the model parameters.
         
@@ -53,9 +65,11 @@ class CompressionOptimizer:
         # Truncate singular values and reconstruct the matrix
         S_truncated = torch.zeros_like(S)
         S_truncated[:k] = S[:k]
-        return U @ torch.diag(S_truncated) @ V
+        return U @ torch.diag(S_truncated) @ V, k
 
-    def compress_model(self, tau, delta):
+    def compress_model(self,
+                       tau: float,
+                       delta: float) -> tuple[dict, int]:
         """
         Compress the model using low-rank approximation and quantization.
         
@@ -64,21 +78,26 @@ class CompressionOptimizer:
             delta (float): Quantization bin size.
         
         Returns:
-            list: Compressed model parameters.
+            tuple[dict, int]: Compressed model parameters and total compressed size.
         """
-        compressed_params = []
+        compressed_params = dict()
+        compressed_size = 0
         for name, param in self.model.named_parameters():
             if 'weight' in name and len(param.shape) == 2:  # Only compress 2D weight matrices
                 # Low-rank approximation
-                low_rank_params = self.low_rank_approximation(param.data, tau)
+                low_rank_params, k = self.low_rank_approximation(param.data, tau)
                 # Quantization
                 quantized_params = self.quantize(low_rank_params, delta)
-                compressed_params.append(quantized_params)
-            else:
-                compressed_params.append(param.data)  # Keep non-2D parameters unchanged
-        return compressed_params
+                compressed_params[name] = quantized_params
+                compressed_size += k
+        return compressed_params, compressed_size
 
-    def evaluate_compression(self, tau, delta, dataloader, criterion, original_params, original_loss):
+    def evaluate_compression(self,
+                             tau: float,
+                             delta: float,
+                             dataloader: DataLoader,
+                             original_params: dict,
+                             original_loss: torch.Tensor) -> float:
         """
         Evaluate the compression by computing the loss difference.
         
@@ -86,52 +105,63 @@ class CompressionOptimizer:
             tau (float): Threshold for low-rank approximation.
             delta (float): Quantization bin size.
             dataloader (DataLoader): Data loader for computing the loss.
-            criterion (nn.Module): Loss function.
             original_params (dict): Original model parameters.
             original_loss (float): Original loss value.
         
         Returns:
-            float: Loss difference between original and compressed models.
+            float: Compressed model size if the loss is within the distortion tolerance. Otherwise, a large value.
         """
         # Compress the model
-        compressed_params = self.compress_model(tau, delta)
+        compressed_params, compression_size = self.compress_model(tau, delta)
         
         # Compute the loss with the compressed model
         with torch.no_grad():
             # Replace model parameters with compressed parameters
-            for (name, param), compressed_param in zip(self.model.named_parameters(), compressed_params):
-                param.copy_(compressed_param)
+            for name, parameter in self.model.named_parameters():
+                if name in compressed_params:
+                    parameter.data = compressed_params[name]
             
             # Forward pass to compute loss
-            inputs, targets = next(iter(dataloader))  # Example input and target
-            outputs = self.model(inputs)
-            compressed_loss = criterion(outputs, targets)
+            compressed_loss = 0
+            for inputs, targets in dataloader:
+                compressed_loss += self.criterion(self.model(inputs), targets)
         
         # Restore original parameters
-        for name, param in self.model.named_parameters():
-            param.copy_(original_params[name])
+        for name, parameter in self.model.named_parameters():
+            if name in original_params:
+                parameter.data = original_params[name]
         
-        # Return the absolute loss difference
-        return abs(compressed_loss.item() - original_loss.item())
+        if abs(original_loss.item() - compressed_loss.item()) < self.epsilon:
+            return compression_size
+        else:
+            return 1e10 # Penalize invalid solutions
 
-    def optimize_compression(self, dataloader, criterion, n_calls=10, tau_range=(0.1, 1.0), delta_range=(0.01, 0.1)):
+    def optimize_compression(self,
+                             dataloader: DataLoader,
+                             n_calls: int = 10,
+                             tau_range: tuple[int, int] = (0.01, 0.1),
+                             delta_range: tuple[int, int] = (0.01, 0.1),
+                             seed: Optional[int] = None):
         """
         Perform Bayesian optimization to find the best compression parameters.
         
         Args:
             dataloader (DataLoader): Data loader for computing the loss.
-            criterion (nn.Module): Loss function.
             n_calls (int): Number of optimization iterations.
             tau_range (tuple): Range of tau values for optimization.
             delta_range (tuple): Range of delta values for optimization.
+            seed (Optional[int]): Random seed for reproducibility.
         
         Returns:
             dict: Best compression parameters (tau, delta) and compressed model.
         """
         # Save original parameters and compute original loss
-        original_params = {name: param.data.clone() for name, param in self.model.named_parameters()}
-        inputs, targets = next(iter(dataloader))  # Example input and target
-        original_loss = criterion(self.model(inputs), targets)
+        params = {name: param.data.clone() for name, param in self.model.named_parameters()}
+        
+        with torch.no_grad():
+            original_loss = 0
+            for inputs, targets in dataloader:
+                original_loss += self.criterion(self.model(inputs), targets)
 
         # Define the search space for tau and delta
         space = [
@@ -141,15 +171,20 @@ class CompressionOptimizer:
 
         # Perform Bayesian optimization
         result = gp_minimize(
-            lambda x: self.evaluate_compression(x[0], x[1], dataloader, criterion, original_params, original_loss),
+            lambda x: self.evaluate_compression(x[0], x[1], dataloader, params, original_loss),
             space,  # Search space
             n_calls=n_calls,  # Number of optimization iterations
-            random_state=42  # Random seed for reproducibility
+            random_state=seed
         )
 
         # Extract the best parameters
         best_tau, best_delta = result.x
-        best_compressed_params = self.compress_model(best_tau, best_delta)
+        best_compressed_params, _ = self.compress_model(best_tau, best_delta)
+
+        # Restore original parameters
+        for name, parameter in self.model.named_parameters():
+            if name in params:
+                parameter.data = params[name]
 
         return {
             'tau': best_tau,

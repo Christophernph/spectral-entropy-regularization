@@ -18,7 +18,7 @@ class SimpleModel(nn.Module):
 class SimpleDataset(Dataset):
     def __init__(self):
         self.data = torch.randn(100, 128)
-        self.targets = self.data.sum(dim=1) > 0
+        self.targets = (self.data.sum(dim=1) > 0).long()
     
     def __len__(self):
         return len(self.data)
@@ -35,16 +35,34 @@ def main():
     
     criterion = nn.CrossEntropyLoss()  # Replace with your loss function
 
-    optimizer = CompressionOptimizer(model, epsilon=1.0) # adjust epsilon as needed
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    criterion = nn.CrossEntropyLoss()  # Primary loss (e.g., cross-entropy for classification)
+
+    for epoch in range(100):  # Example training loop
+        for inputs, targets in dataloader: 
+            optimizer.zero_grad()
+            
+            # Forward pass with noisy weights
+            outputs = model(inputs)
+            
+            # Compute loss and perform backward pass
+            loss = criterion(outputs, targets)
+            loss.backward()
+            
+            # Update weights
+            optimizer.step()
+
 
     # Optimize
-    result = optimizer.optimize_compression(dataloader, criterion, n_calls=10)
+    optimizer = CompressionOptimizer(model, criterion, epsilon=1.0) # adjust epsilon as needed
+    result = optimizer.optimize_compression(dataloader, n_calls=10)
     print("Best tau:", result['tau'])
     print("Best delta:", result['delta'])
-
-    # Compress the model
-    for (name, param), compressed_param in zip(model.named_parameters(), result['compressed_params']):
-        param.copy_(compressed_param)
+    
+    # Compress the model (i.e. load the compressed parameters into the model)
+    for name, parameter in model.named_parameters():
+        if name in result['compressed_params']:
+            parameter.data = result['compressed_params'][name]
     
 
 if __name__ == '__main__':
