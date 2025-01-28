@@ -22,7 +22,7 @@ class NoisyWeightWrapper(nn.Module):
         if not self.model.training:
             return self.model(*args, **kwargs)
         
-        # Add noise to the weights in-place (without tracking gradients)
+        # Add noise to the weights (without tracking gradients)
         noise_dict = {}
         with torch.no_grad():
             for name, param in self.model.named_parameters():
@@ -34,7 +34,7 @@ class NoisyWeightWrapper(nn.Module):
         # Perform the forward pass with noisy weights
         output = self.model(*args, **kwargs)
 
-        # Remove the noise from the weights in-place (restore original weights)
+        # Remove the noise from the weights (restore original weights)
         with torch.no_grad():
             for name, param in self.model.named_parameters():
                 if param.requires_grad:
