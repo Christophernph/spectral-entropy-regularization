@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class NoisyWeightWrapper(nn.Module):
-    def __init__(self, model, noise_scale=0.01):
+    def __init__(self, model: nn.Module, noise_scale: float = 0.01):
         """
         Wrapper for adding Gaussian noise to model weights during the forward pass.
         
