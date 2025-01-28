@@ -22,7 +22,7 @@ class NoisyWeightWrapper(nn.Module):
         noise_dict = {}
         with torch.no_grad():
             for name, param in self.model.named_parameters():
-                if 'weight' in name and param.requires_grad: # Only add noise to trainable weights
+                if param.requires_grad: # Only add noise to trainable weights
                     noise = torch.randn_like(param) * self.noise_scale  # Generate Gaussian noise
                     param.data = param.data + noise
                     noise_dict[name] = noise  # Save the noise for later removal
@@ -33,7 +33,7 @@ class NoisyWeightWrapper(nn.Module):
         # Remove the noise from the weights in-place (restore original weights)
         with torch.no_grad():
             for name, param in self.model.named_parameters():
-                if 'weight' in name and param.requires_grad:
+                if param.requires_grad:
                     noise = noise_dict[name]
                     param.data = param.data - noise
 

@@ -83,7 +83,7 @@ class CompressionOptimizer:
         compressed_params = dict()
         compressed_size = 0
         for name, param in self.model.named_parameters():
-            if 'weight' in name and len(param.shape) == 2:  # Only compress 2D weight matrices
+            if param.ndim == 2:  # Only compress 2D weight matrices
                 # Low-rank approximation
                 low_rank_params, k = self.low_rank_approximation(param.data, tau)
                 # Quantization

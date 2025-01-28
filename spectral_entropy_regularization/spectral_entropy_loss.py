@@ -42,8 +42,8 @@ class SpectralEntropyLoss(nn.Module):
         total_spectral_entropy = 0.0
         
         # Iterate over all parameters in the model
-        for name, param in model.named_parameters():
-            if 'weight' in name and len(param.shape) == 2:  # Only apply to 2D weight matrices
+        for _, param in model.named_parameters():
+            if param.ndim == 2:  # Only apply to 2D weight matrices
                 total_spectral_entropy += self.spectral_entropy(param)
         
         return total_spectral_entropy
