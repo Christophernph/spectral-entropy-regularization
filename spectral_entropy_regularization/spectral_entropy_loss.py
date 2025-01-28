@@ -22,7 +22,7 @@ class SpectralEntropyLoss(nn.Module):
         singular_values = torch.linalg.svdvals(weight_matrix)
         
         # Normalize singular values to form a probability distribution
-        normalized_singular_values = nn.functional.softmax(singular_values, dim=0)
+        normalized_singular_values = singular_values / torch.sum(singular_values)
         
         # Compute spectral entropy
         spectral_entropy = -torch.sum(normalized_singular_values * torch.log(normalized_singular_values + torch.finfo(torch.float32).eps))
