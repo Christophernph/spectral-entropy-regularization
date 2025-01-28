@@ -18,6 +18,10 @@ class NoisyWeightWrapper(nn.Module):
         """
         Forward pass with noisy weights.
         """
+        # If not in training mode, return the model output without noise
+        if not self.model.training:
+            return self.model(*args, **kwargs)
+        
         # Add noise to the weights in-place (without tracking gradients)
         noise_dict = {}
         with torch.no_grad():
