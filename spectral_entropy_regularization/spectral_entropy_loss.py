@@ -5,6 +5,7 @@ class SpectralEntropyLoss(nn.Module):
     def __init__(
         self,
         maximum_dimension: int = 2,
+        reduction: str = "mean"
     ):
         """
         Spectral Entropy Loss for regularization.
@@ -14,7 +15,9 @@ class SpectralEntropyLoss(nn.Module):
         """
         super(SpectralEntropyLoss, self).__init__()
         assert maximum_dimension >= 2, "The maximum dimension must be at least 2."
+        assert reduction in ["mean", "sum"], "Reduction must be either 'mean' or 'sum'."
         self.maximum_dimension = maximum_dimension
+        self.reduction = reduction
 
     def spectral_entropy(self, weight_matrix) -> torch.Tensor:
         """
@@ -47,12 +50,17 @@ class SpectralEntropyLoss(nn.Module):
         Returns:
             torch.Tensor: Total spectral entropy of the model's weight matrices.
         """
-        total_spectral_entropy = 0.0
+        total_spectral_entropy = torch.tensor(0.0)
+        count = 0
         
         # Iterate over all parameters in the model
         for _, param in model.named_parameters():
             if param.ndim > 1 and param.ndim <= self.maximum_dimension:
                 *_, row, col = param.shape
                 total_spectral_entropy += self.spectral_entropy(param.reshape(-1, row, col))
+                count += 1
+        
+        if self.reduction == "mean":
+            return total_spectral_entropy / count if count > 0 else total_spectral_entropy
         
         return total_spectral_entropy
