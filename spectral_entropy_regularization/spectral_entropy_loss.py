@@ -12,6 +12,7 @@ class SpectralEntropyLoss(nn.Module):
         
         Args:
             maximum_dimension (int): Maximum dimension of weight matrices for which to compute spectral entropy. Defaults to 2.
+            reduction (str): Reduction method for the computed spectral entropy. Must be 'mean' or 'sum'. Defaults to 'mean'.
         """
         super(SpectralEntropyLoss, self).__init__()
         assert maximum_dimension >= 2, "The maximum dimension must be at least 2."
@@ -50,7 +51,7 @@ class SpectralEntropyLoss(nn.Module):
         Returns:
             torch.Tensor: Total spectral entropy of the model's weight matrices.
         """
-        total_spectral_entropy = torch.tensor(0.0)
+        total_spectral_entropy = 0
         count = 0
         
         # Iterate over all parameters in the model
