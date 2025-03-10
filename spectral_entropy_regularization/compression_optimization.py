@@ -36,6 +36,8 @@ class CompressionOptimizer:
             model (nn.Module): The neural network model to compress.
             criterion (nn.Module): Loss function for evaluating the compression.
             epsilon (float): Distortion tolerance for compression.
+            reduction (str): Reduction method for the loss function ('mean' or 'sum'). Defaults to 'mean'.
+            device (str): Device to use for computation (e.g., 'cpu' or 'cuda'). Defaults to 'cpu'.
         """
         assert reduction in ['mean', 'sum'], "Reduction must be 'mean' or 'sum'."
         
@@ -209,7 +211,8 @@ class CompressionOptimizer:
             if self.reduction == 'mean':
                 original_loss /= count
         
-        _, compression = self.compress_model(1.0, 1e-10) # No compression
+        # Compute baseline compression, i.e. no compression
+        _, compression = self.compress_model(1.0, 1e-10)
         print("Uncompressed size:", compression)
 
         # Define the search space for tau and delta
