@@ -1,17 +1,34 @@
-from typing import Optional
+from typing import Optional, Sequence
 
 import torch
 import torch.nn as nn
 from skopt import gp_minimize
 from skopt.space import Real
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
+
+class tqdm_skopt:
+    # From https://github.com/scikit-optimize/scikit-optimize/issues/674#issuecomment-493676386
+    
+    def __init__(self, **kwargs):
+        self._bar = tqdm(**kwargs)
+    
+    def __call__(self, res):
+        best = (res.fun, res.x)
+        curr = (res.func_vals[-1], res.x_iters[-1])
+        
+        desc = f"Status (best/curr) | Compression = {best[0]:.4f}/{curr[0]:.4f} | Tau = {best[1][0]:.4f}/{curr[1][0]:.4f} | Delta = {best[1][1]:.4f}/{curr[1][1]:.4f}"
+        self._bar.set_description(desc)
+        self._bar.update()
 
 class CompressionOptimizer:
     def __init__(self,
                  model: nn.Module,
                  criterion: nn.Module,
-                 epsilon: float = 1.0):
+                 epsilon: float = 1.0,
+                 reduction: str = 'mean',
+                 device: str = "cpu"):
         """
         Compression Optimizer for Quantization and Low-Rank Approximation.
         
@@ -20,9 +37,21 @@ class CompressionOptimizer:
             criterion (nn.Module): Loss function for evaluating the compression.
             epsilon (float): Distortion tolerance for compression.
         """
+        assert reduction in ['mean', 'sum'], "Reduction must be 'mean' or 'sum'."
+        
         self.model = model
         self.epsilon = epsilon
         self.criterion = criterion
+        self.reduction = reduction
+        self.device = torch.device(device)
+    
+    def __put_on_device(self, data):
+        if isinstance(data, torch.Tensor):
+            return data.to(self.device)
+        elif isinstance(data, Sequence):
+            return [self.__put_on_device(d) for d in data]
+        else:
+            return data
 
     def quantize(self,
                  params: torch.Tensor,
@@ -123,8 +152,14 @@ class CompressionOptimizer:
             
             # Forward pass to compute loss
             compressed_loss = 0
-            for inputs, targets in dataloader:
+            count = 0
+            for inputs, targets in tqdm(dataloader, desc="Computing Loss", leave=False):
+                inputs = self.__put_on_device(inputs)
+                targets = self.__put_on_device(targets)
                 compressed_loss += self.criterion(self.model(inputs), targets)
+                count += 1
+            if self.reduction == 'mean':
+                compressed_loss /= count
         
         # Restore original parameters
         for name, parameter in self.model.named_parameters():
@@ -139,7 +174,7 @@ class CompressionOptimizer:
     def optimize_compression(self,
                              dataloader: DataLoader,
                              n_calls: int = 10,
-                             tau_range: tuple[int, int] = (0.01, 0.1),
+                             tau_range: tuple[int, int] = (0.01, 0.99),
                              delta_range: tuple[int, int] = (0.01, 0.1),
                              seed: Optional[int] = None):
         """
@@ -155,13 +190,27 @@ class CompressionOptimizer:
         Returns:
             dict: Best compression parameters (tau, delta) and compressed model.
         """
+        # Ensure model is on device
+        self.model.to(self.device)
+        
         # Save original parameters and compute original loss
         params = {name: param.data.clone() for name, param in self.model.named_parameters()}
         
+        # Compute baseline loss
+        print("Computing baseline loss...")
         with torch.no_grad():
             original_loss = 0
-            for inputs, targets in dataloader:
+            count = 0
+            for inputs, targets in tqdm(dataloader, desc="Computing Loss", leave=False):
+                inputs = self.__put_on_device(inputs)
+                targets = self.__put_on_device(targets)
                 original_loss += self.criterion(self.model(inputs), targets)
+                count += 1
+            if self.reduction == 'mean':
+                original_loss /= count
+        
+        _, compression = self.compress_model(1.0, 1e-10) # No compression
+        print("Uncompressed size:", compression)
 
         # Define the search space for tau and delta
         space = [
@@ -170,11 +219,13 @@ class CompressionOptimizer:
         ]
 
         # Perform Bayesian optimization
+        print("Optimizing compression...")
         result = gp_minimize(
             lambda x: self.evaluate_compression(x[0], x[1], dataloader, params, original_loss),
             space,  # Search space
             n_calls=n_calls,  # Number of optimization iterations
-            random_state=seed
+            random_state=seed,
+            callback=[tqdm_skopt(total=n_calls, desc="Compression Optimization")],
         )
 
         # Extract the best parameters
